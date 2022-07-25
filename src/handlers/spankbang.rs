@@ -37,10 +37,10 @@ use url::Url;
 
 const MAX_FILENAME_LENGTH: usize = 142; // filename is based on url path description string
 
-static mut VIDEO_INFO: String = String::new();
 
-unsafe fn get_video_info(url: &str, webdriver_port: u16) -> Result<Html> {
-    if VIDEO_INFO.is_empty() {
+
+fn get_video_info_s( video_info:&mut String, url: &str, webdriver_port: u16) -> Result<Html> {
+    if video_info.is_empty() {
         // We need to fetch the video information first.
         // It will contain the whole body for now.
         let local_url = url.to_owned();
@@ -58,14 +58,13 @@ unsafe fn get_video_info(url: &str, webdriver_port: u16) -> Result<Html> {
                 .expect("failed to connect to web driver");
             c.goto(&local_url).await.expect("could not go to the URL");
             let body = c.source().await.expect("could not read the site source");
+            video_info.push_str(body.as_str());
             c.close_window().await.expect("could not close the window");
 
-            VIDEO_INFO = body;
         });
     }
 
-    // Return it:
-    let d = Html::parse_document(&VIDEO_INFO);
+    let d = Html::parse_document("");
     Ok(d)
 }
 
@@ -87,28 +86,43 @@ impl SiteDefinition for SpankbangHandler {
         Ok(url_filename(url.to_string()))
     }
 
+    // not used
     fn find_video_direct_url<'a>(
         &'a self,
-        url: &'a str,
-        webdriver_port: u16,
+        _url: &'a str,
+        _webdriver_port: u16,
         _onlyaudio: bool,
     ) -> Result<String> {
-        unsafe {
-            let video_info = get_video_info(url, webdriver_port)?;
+            Ok("".to_string())
+    }
+
+    
+    fn find_video_direct_url_s<'a>(
+        &'a self,
+        video_info: &mut String,
+        _url: &'a str,
+        _webdriver_port: u16,
+        _onlyaudio: bool,
+    ) -> Result<String> {
+            // let video_info = get_video_info_s(video_info,url, webdriver_port)?;
+            let video_info_html =  Html::parse_document(video_info);
 
             let url_selector = Selector::parse(r#"source[type="video/mp4"]"#).unwrap();
-            let url_elem = video_info.select(&url_selector).next().unwrap();
+            let url_elem = video_info_html.select(&url_selector).next().unwrap();
             let url_contents = url_elem.value().attr("src").unwrap();
 
             Ok(url_contents.to_string())
-        }
     }
 
-    fn does_video_exist<'a>(&'a self, url: &'a str, webdriver_port: u16) -> Result<bool> {
-        unsafe {
-            let _video_info = get_video_info(url, webdriver_port);
-            Ok(!VIDEO_INFO.is_empty())
-        }
+    // not used
+    fn does_video_exist<'a>(&'a self, _url: &'a str, _webdriver_port: u16) -> Result<bool> {
+            Ok(false)
+    }
+
+    
+    fn does_video_exist_s<'a>(&'a self, video_info: &mut String,  url: &'a str, webdriver_port: u16) -> Result<bool> {
+            let _video_info = get_video_info_s(video_info,url, webdriver_port);
+            Ok(!video_info.is_empty())
     }
 
     fn display_name<'a>(&'a self) -> String {
@@ -125,6 +139,14 @@ impl SiteDefinition for SpankbangHandler {
     }
 
     fn web_driver_required<'a>(&'a self) -> bool {
+        true
+    }
+
+    fn base_filename<'a>(&'a self, in_url: &'a str) -> String {
+        return url_filename(in_url.to_string());
+    }
+
+    fn is_handler_implemented<'a>(&'a self) -> bool {
         true
     }
 }

@@ -28,6 +28,7 @@ mod definitions;
 mod download;
 mod ffmpeg;
 mod handlers;
+mod main_no_unsafe;
 
 #[derive(Parser)]
 #[clap(version, about = "Yet Another Youtube Down Loader", long_about = None)]
@@ -71,6 +72,8 @@ fn main() -> Result<()> {
     inventory::collect!(&'static dyn definitions::SiteDefinition);
     let mut site_def_found = false;
 
+    let mut video_info = String::new();
+
     for handler in inventory::iter::<&dyn definitions::SiteDefinition> {
         // "15:15 And he found a pair of eyes, scanning the directories for files."
         // https://kingjamesprogramming.tumblr.com/post/123368869357/1515-and-he-found-a-pair-of-eyes-scanning-the
@@ -103,7 +106,12 @@ fn main() -> Result<()> {
             continue;
         }
 
-        let video_exists = handler.does_video_exist(in_url, webdriverport)?;
+        if handler.is_handler_implemented() {
+            // we can pass args, but struct Args needs to be public
+            main_no_unsafe::download_with_safe_code(&handler, &mut video_info , in_url, webdriverport, args.onlyaudio, args.outputfile.clone());
+        }  else {
+            
+        let video_exists = handler.does_video_exist(in_url, webdriverport)?; // first use of unsafe code
         if !video_exists {
             println!("The video could not be found. Invalid link?");
         } else {
@@ -199,7 +207,8 @@ fn main() -> Result<()> {
             // Stop looking for other handlers:
             break;
         }
-    }
+      } // if else handler.is_handler_implemented()
+    } // for handler
 
     if !site_def_found {
         println!(

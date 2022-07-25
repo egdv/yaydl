@@ -53,4 +53,28 @@ pub trait SiteDefinition {
 
     // true, if this site needs a web driver.
     fn web_driver_required<'a>(&'a self) -> bool;
+
+    // no usafe code with default method impl
+    fn does_video_exist_s<'a>(&'a self, _video_info: &'a mut String, _url: &'a str, _webdriver_port: u16) -> Result<bool>{ Ok(false)}
+
+    fn find_video_title_s<'a>(&'a self, _video_info: &'a mut String, _url: &'a str, _webdriver_port: u16) -> Result<String> { Ok("".to_string())}
+
+    fn find_video_direct_url_s<'a>(
+        &'a self,
+        _video_info: &'a mut String,
+        _url: &'a str,
+        _webdriver_port: u16,
+        _onlyaudio: bool,
+    ) -> Result<String> { Ok("".to_string())}
+
+    // should return true from a handler override!
+    fn is_handler_implemented<'a>(&'a self) -> bool {
+        return false;
+    }
+    
+    fn base_filename<'a>(&'a self, _url: &'a str) -> String {
+        println!("default: base_filename(...)");
+        return "default_base_filename".to_string();
+    }
+    
 }
