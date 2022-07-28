@@ -16,17 +16,18 @@
 // Yet Another Youtube Down Loader
 // - YouTube handler -
 
+// test url: https://www.youtube.com/watch?v=jNQXAC9IVRw
+
 use crate::definitions::SiteDefinition;
 
 use anyhow::Result;
 use regex::Regex;
 use serde_json::{json, Value};
 
-static mut VIDEO_INFO: String = String::new();
-static mut VIDEO_MIME: String = String::new();
+use crate::VIDEO;
 
-unsafe fn get_video_info(id: &str) -> Result<Value> {
-    if VIDEO_INFO.is_empty() {
+fn get_video_info(video:&mut VIDEO, id: &str) -> Result<Value> {
+    if video.info.is_empty() {
         // We need to fetch the video information first.
         let video_url = "https://youtubei.googleapis.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
         let req = ureq::post(&video_url).send_json(ureq::json!({
@@ -39,11 +40,12 @@ unsafe fn get_video_info(id: &str) -> Result<Value> {
             }
         }))?;
         let body = req.into_string()?;
-        VIDEO_INFO = body;
+        video.info.push_str(body.as_str());
+
     }
 
     // Return it:
-    let v: Value = serde_json::from_str(&VIDEO_INFO)?;
+    let v: Value = serde_json::from_str(&video.info)?;
     Ok(v)
 }
 
@@ -61,27 +63,25 @@ impl SiteDefinition for YouTubeHandler {
         Ok(false)
     }
 
-    fn find_video_title<'a>(&'a self, url: &'a str, _webdriver_port: u16) -> Result<String> {
+    fn find_video_title<'a>(&'a self, video:&'a mut VIDEO,  url: &'a str, _webdriver_port: u16) -> Result<String> {
         let id_regex = Regex::new(r"(?:v=|\.be/)(.*?)(&.*)*$").unwrap();
         let id = id_regex.captures(url).unwrap().get(1).unwrap().as_str();
-        unsafe {
-            let video_info = get_video_info(id)?;
+            let video_info = get_video_info(video, id)?;
             let video_info_title = video_info["videoDetails"]["title"].as_str().unwrap_or("");
 
             Ok(String::from(video_info_title))
-        }
     }
 
     fn find_video_direct_url<'a>(
         &'a self,
+        video:&'a mut VIDEO,
         url: &'a str,
         _webdriver_port: u16,
         onlyaudio: bool,
     ) -> Result<String> {
         let id_regex = Regex::new(r"(?:v=|\.be/)(.*?)(&.*)*$").unwrap();
         let id = id_regex.captures(url).unwrap().get(1).unwrap().as_str();
-        unsafe {
-            let video_info = get_video_info(id)?;
+            let video_info = get_video_info(video, id)?;
             let video_info_itags = match video_info["streamingData"]["formats"].as_array() {
                 None => return Ok("".to_string()),
                 Some(itags) => itags,
@@ -146,7 +146,8 @@ impl SiteDefinition for YouTubeHandler {
                         || !onlyaudio && last_vq.is_empty() && !this_vq.is_empty())
                     || is_better_quality
                 {
-                    VIDEO_MIME = itag["mimeType"].to_string();
+                    // VIDEO_MIME = itag["mimeType"].to_string();
+                    video.mime = itag["mimeType"].to_string();
                     url_to_choose = itag["url"].as_str().unwrap();
 
                     last_vq = String::from(this_vq);
@@ -161,18 +162,15 @@ impl SiteDefinition for YouTubeHandler {
             } else {
                 Ok(url_to_choose.to_string())
             }
-        }
     }
 
-    fn does_video_exist<'a>(&'a self, url: &'a str, _webdriver_port: u16) -> Result<bool> {
+    fn does_video_exist<'a>(&'a self,  video:&'a mut VIDEO, url: &'a str, _webdriver_port: u16) -> Result<bool> {
         let id_regex = Regex::new(r"(?:v=|\.be\/)(.*?)(&.*)*$").unwrap();
         let id = id_regex.captures(url).unwrap().get(1).unwrap().as_str();
-        unsafe {
-            let video_info = get_video_info(id)?;
+            let video_info = get_video_info(video, id)?;
             let video_info_is_playable = video_info["playabilityStatus"]["status"] == json!("OK");
             let video_info_has_details = video_info["videoDetails"] != json!(null);
             Ok(video_info_has_details && video_info_is_playable)
-        }
     }
 
     fn display_name<'a>(&'a self) -> String {
@@ -181,21 +179,20 @@ impl SiteDefinition for YouTubeHandler {
 
     fn find_video_file_extension<'a>(
         &'a self,
+        video: &'a mut VIDEO,
         _url: &'a str,
         _webdriver_port: u16,
         _onlyaudio: bool,
     ) -> Result<String> {
         // By this point, we have already filled VIDEO_MIME. Let's just use that.
-        unsafe {
             let mut ext = "mp4";
-            if VIDEO_MIME.contains("/webm") {
+            if video.mime.contains("/webm") {
                 ext = "webm";
-            } else if VIDEO_MIME.contains("audio/mp4") {
+            } else if video.mime.contains("audio/mp4") {
                 ext = "m4a";
             }
 
             Ok(ext.to_string())
-        }
     }
 
     fn web_driver_required<'a>(&'a self) -> bool {

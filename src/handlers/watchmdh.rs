@@ -24,10 +24,10 @@ use regex::Regex;
 use scraper::{Html, Selector};
 use tokio::runtime;
 
-static mut VIDEO_INFO: String = String::new();
+use crate::VIDEO;
 
-unsafe fn get_video_info(url: &str, webdriver_port: u16) -> Result<Html> {
-    if VIDEO_INFO.is_empty() {
+fn get_video_info(video:&mut VIDEO, url: &str, webdriver_port: u16) -> Result<Html> {
+    if video.info.is_empty() {
         // We need to fetch the video information first.
         // It will contain the whole body for now.
         let local_url = url.to_owned();
@@ -45,14 +45,16 @@ unsafe fn get_video_info(url: &str, webdriver_port: u16) -> Result<Html> {
                 .expect("failed to connect to web driver");
             c.goto(&local_url).await.expect("could not go to the URL");
             let body = c.source().await.expect("could not read the site source");
+            video.info.push_str(body.as_str());
             c.close_window().await.expect("could not close the window");
 
-            VIDEO_INFO = body;
         });
     }
 
-    // Return it:
-    let d = Html::parse_document(&VIDEO_INFO);
+    // barrow checker will complain if we use video.info here
+    // updated video.info will be avaiable from the caller
+    // let d = Html::parse_document(&video.info);
+    let d = Html::parse_document("");
     Ok(d)
 }
 
@@ -68,29 +70,28 @@ impl SiteDefinition for WatchMDHHandler {
         Ok(false)
     }
 
-    fn find_video_title<'a>(&'a self, url: &'a str, webdriver_port: u16) -> Result<String> {
-        unsafe {
-            let video_info = get_video_info(url, webdriver_port)?;
+    fn find_video_title<'a>(&'a self, video:&'a mut VIDEO, url: &'a str, webdriver_port: u16) -> Result<String> {
+            let _not_used = get_video_info(video, url, webdriver_port)?;
+            let video_info_html =  Html::parse_document(video.info.as_str());
 
             let title_selector = Selector::parse(r#"meta[property="og:title"]"#).unwrap();
-            let title_elem = video_info.select(&title_selector).next().unwrap();
+            let title_elem = video_info_html.select(&title_selector).next().unwrap();
             let title_contents = title_elem.value().attr("content").unwrap();
 
             Ok(title_contents.to_string())
-        }
     }
 
     fn find_video_direct_url<'a>(
         &'a self,
+        video:&'a mut VIDEO,
         _url: &'a str,
         _webdriver_port: u16,
         _onlyaudio: bool,
     ) -> Result<String> {
-        unsafe {
             // Find the best video format and the rnd value:
             let re_rnd = Regex::new(r"rnd: '(\d+)'").unwrap();
             let rnd = re_rnd
-                .captures(&VIDEO_INFO)
+                .captures(&video.info)
                 .unwrap()
                 .get(1)
                 .unwrap()
@@ -101,16 +102,16 @@ impl SiteDefinition for WatchMDHHandler {
 
             let url_contents;
 
-            if re_vid1.is_match(&VIDEO_INFO) {
+            if re_vid1.is_match(&video.info) {
                 url_contents = re_vid1
-                    .captures(&VIDEO_INFO)
+                    .captures(&video.info)
                     .unwrap()
                     .get(1)
                     .unwrap()
                     .as_str();
             } else {
                 url_contents = re_vid2
-                    .captures(&VIDEO_INFO)
+                    .captures(&video.info)
                     .unwrap()
                     .get(1)
                     .unwrap()
@@ -118,14 +119,11 @@ impl SiteDefinition for WatchMDHHandler {
             }
 
             Ok(String::from(url_contents) + "?rnd=" + rnd)
-        }
     }
 
-    fn does_video_exist<'a>(&'a self, url: &'a str, webdriver_port: u16) -> Result<bool> {
-        unsafe {
-            let _video_info = get_video_info(url, webdriver_port);
-            Ok(!VIDEO_INFO.is_empty())
-        }
+    fn does_video_exist<'a>(&'a self,  video:&'a mut VIDEO, url: &'a str, webdriver_port: u16) -> Result<bool> {
+            let _video_info = get_video_info(video, url, webdriver_port);
+            Ok(!video.info.is_empty())
     }
 
     fn display_name<'a>(&'a self) -> String {
@@ -134,6 +132,7 @@ impl SiteDefinition for WatchMDHHandler {
 
     fn find_video_file_extension<'a>(
         &'a self,
+        _video: &'a mut VIDEO,
         _url: &'a str,
         _webdriver_port: u16,
         _onlyaudio: bool,

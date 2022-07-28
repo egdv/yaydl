@@ -22,11 +22,10 @@ use anyhow::Result;
 use regex::Regex;
 use serde_json::Value;
 
-static mut VIDEO_INFO: String = String::new();
-static mut VIDEO_TITLE: String = String::new();
+use crate::VIDEO;
 
-unsafe fn get_video_info(url: &str) -> Result<Value> {
-    if VIDEO_INFO.is_empty() {
+fn get_video_info(video:&mut VIDEO, url: &str) -> Result<Value> {
+    if video.info.is_empty() {
         // We need to fetch the video information first.
         // Those are hidden behing a config file defined in the page source code.
         // Search for: window.vimeo.clip_page_config.player = {"config_url":"(.+?)"
@@ -43,7 +42,7 @@ unsafe fn get_video_info(url: &str) -> Result<Value> {
             Regex::new("<meta property=\"og:title\" content=\"(?P<TITLE>.+?)\"").unwrap();
         let title_search = title_re.captures(&body).unwrap();
         let video_title = title_search.name("TITLE").map_or("", |t| t.as_str());
-        VIDEO_TITLE = video_title.to_string();
+        video.title = video_title.to_string();
 
         // If yaydl stops here, the URL is invalid.
         // TODO: That should be more obvious to the user.
@@ -56,11 +55,12 @@ unsafe fn get_video_info(url: &str) -> Result<Value> {
         // Grab and store it:
         let config_req = ureq::get(&video_info_url).call()?;
         let config_body = config_req.into_string()?;
-        VIDEO_INFO = config_body;
+        video.info.push_str(config_body.as_str());
+
     }
 
     // Return it:
-    let v: Value = serde_json::from_str(&VIDEO_INFO)?;
+    let v: Value = serde_json::from_str(&video.info)?;
     Ok(v)
 }
 
@@ -76,23 +76,21 @@ impl SiteDefinition for VimeoHandler {
         Ok(false)
     }
 
-    fn find_video_title<'a>(&'a self, _url: &'a str, _webdriver_port: u16) -> Result<String> {
-        unsafe {
-            let ret = &VIDEO_TITLE;
+    fn find_video_title<'a>(&'a self, video:&mut VIDEO,  _url: &'a str, _webdriver_port: u16) -> Result<String> {
+            let ret = &video.title;
             Ok(ret.to_string())
-        }
     }
 
     fn find_video_direct_url<'a>(
         &'a self,
+        video:&'a mut VIDEO,
         url: &'a str,
         _webdriver_port: u16,
         _onlyaudio: bool,
     ) -> Result<String> {
         let id_regex = Regex::new(r"(?:vimeo.com/)(.*$)").unwrap();
         let id = id_regex.captures(url).unwrap().get(1).unwrap().as_str();
-        unsafe {
-            let video_info = get_video_info(id)?;
+            let video_info = get_video_info(video, id)?;
             let video_info_streams_progressive =
                 match video_info["request"]["files"]["progressive"].as_array() {
                     None => return Ok("".to_string()),
@@ -112,14 +110,11 @@ impl SiteDefinition for VimeoHandler {
             }
 
             Ok(url.to_string())
-        }
     }
 
-    fn does_video_exist<'a>(&'a self, url: &'a str, _webdriver_port: u16) -> Result<bool> {
-        unsafe {
-            let _video_info = get_video_info(url);
-            Ok(!VIDEO_INFO.is_empty())
-        }
+    fn does_video_exist<'a>(&'a self,  video:&'a mut VIDEO, url: &'a str, _webdriver_port: u16) -> Result<bool> {
+            let _video_info = get_video_info(video,url);
+            Ok(!video.info.is_empty())
     }
 
     fn display_name<'a>(&'a self) -> String {
@@ -128,6 +123,7 @@ impl SiteDefinition for VimeoHandler {
 
     fn find_video_file_extension<'a>(
         &'a self,
+        _video: &'a mut VIDEO,
         _url: &'a str,
         _webdriver_port: u16,
         _onlyaudio: bool,
